@@ -2,14 +2,13 @@ package reader
 
 import (
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/gotd/td/tg"
 	"github.com/tgdrive/teldrive/internal/cache"
 	"github.com/tgdrive/teldrive/internal/config"
 	"github.com/tgdrive/teldrive/internal/crypt"
-	"github.com/tgdrive/teldrive/pkg/schemas"
+	"github.com/tgdrive/teldrive/pkg/models"
 	"github.com/tgdrive/teldrive/pkg/types"
 )
 
@@ -20,7 +19,7 @@ type Range struct {
 
 type LinearReader struct {
 	ctx         context.Context
-	file        *schemas.FileOutFull
+	file        *models.File
 	parts       []types.Part
 	ranges      []Range
 	pos         int
@@ -52,7 +51,7 @@ func calculatePartByteRanges(start, end, partSize int64) []Range {
 func NewLinearReader(ctx context.Context,
 	client *tg.Client,
 	cache cache.Cacher,
-	file *schemas.FileOutFull,
+	file *models.File,
 	parts []types.Part,
 	start,
 	end int64,
@@ -60,12 +59,16 @@ func NewLinearReader(ctx context.Context,
 	concurrency int,
 ) (io.ReadCloser, error) {
 
+	size := parts[0].Size
+	if file.Encrypted {
+		size = parts[0].DecryptedSize
+	}
 	r := &LinearReader{
 		ctx:         ctx,
 		parts:       parts,
 		file:        file,
 		remaining:   end - start + 1,
-		ranges:      calculatePartByteRanges(start, end, parts[0].Size),
+		ranges:      calculatePartByteRanges(start, end, size),
 		config:      config,
 		client:      client,
 		concurrency: concurrency,
@@ -125,15 +128,15 @@ func (r *LinearReader) moveToNextPart() error {
 
 func (r *LinearReader) getPartReader() (io.ReadCloser, error) {
 	currentRange := r.ranges[r.pos]
-	partID := r.parts[currentRange.PartNo].ID
+	partId := r.parts[currentRange.PartNo].ID
 
 	chunkSrc := &chunkSource{
-		channelID:   *r.file.ChannelID,
-		partID:      partID,
+		channelId:   *r.file.ChannelId,
+		partId:      partId,
 		client:      r.client,
 		concurrency: r.concurrency,
 		cache:       r.cache,
-		key:         fmt.Sprintf("files:location:%s:%d", r.file.Id, partID),
+		key:         cache.Key("files", "location", r.file.ID, partId),
 	}
 
 	var (
